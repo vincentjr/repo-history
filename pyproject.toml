@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "code-history"
+version = "0.1.0"
+description = "Per-PR rationale store. Distills GitHub PRs into structured records and answers code-region queries."
+requires-python = ">=3.11"
+readme = "specs/code-history-context-system.md"
+dependencies = [
+  "pydantic>=2.6",
+  "requests>=2.31",
+]
+
+[project.optional-dependencies]
+vertex = ["google-cloud-aiplatform>=1.60"]
+dev = ["pytest>=8.0", "pytest-mock>=3.12"]
+
+[project.scripts]
+code-history = "code_history.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
