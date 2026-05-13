@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from . import db
-from .config import ConfigError, load_config, write_skeleton
+from .config import DEFAULT_DB_PATH, ConfigError, load_config, write_skeleton
 from .github import GitHubClient
 from .ingest import fetch_repo
 from .providers import build_provider
@@ -29,13 +29,12 @@ def cmd_init(args: argparse.Namespace) -> int:
     except ConfigError as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
-    cfg_dir = Path(path).parent
-    db_default = cfg_dir / "code-history.db"
-    conn = db.connect(db_default)
+    db_path = Path(args.config).parent / "code-history.db" if args.config else DEFAULT_DB_PATH
+    conn = db.connect(db_path)
     db.init_schema(conn)
     conn.close()
     print(f"Wrote config: {path}")
-    print(f"Initialized database: {db_default}")
+    print(f"Initialized database: {db_path}")
     print("Edit the config to set [github].token and [github].repositories, then run `code-history fetch`.")
     return 0
 

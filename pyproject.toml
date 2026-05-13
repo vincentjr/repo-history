@@ -7,7 +7,7 @@ name = "code-history"
 version = "0.1.0"
 description = "Per-PR rationale store. Distills GitHub PRs into structured records and answers code-region queries."
 requires-python = ">=3.11"
-readme = "specs/code-history-context-system.md"
+readme = "README.md"
 dependencies = [
   "pydantic>=2.6",
   "requests>=2.31",

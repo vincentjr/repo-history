@@ -8,7 +8,9 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_CONFIG_PATH = Path.home() / ".config" / "code-history" / "config.toml"
+GENERATED_DIR = Path("generated")
+DEFAULT_CONFIG_PATH = GENERATED_DIR / "config.toml"
+DEFAULT_DB_PATH = GENERATED_DIR / "code-history.db"
 
 CONFIG_SKELETON = """# code-history config
 
@@ -38,7 +40,7 @@ model = "gpt-5"
 timeout_seconds = 180
 
 [storage]
-db_path = "./code-history.db"
+db_path = "./generated/code-history.db"
 
 [ingest]
 diff_max_bytes = 100000
@@ -84,7 +86,7 @@ class LLMConfig:
 
 @dataclass
 class StorageConfig:
-    db_path: str = "./code-history.db"
+    db_path: str = "./generated/code-history.db"
 
 
 @dataclass
@@ -152,7 +154,7 @@ def load_config(path: str | Path | None = None) -> Config:
     llm = LLMConfig(provider=provider, cursor=cursor, vertex=vertex, codex=codex)
 
     storage = StorageConfig(
-        db_path=_get(data.get("storage"), "db_path", "./code-history.db"),
+        db_path=_get(data.get("storage"), "db_path", str(DEFAULT_DB_PATH)),
     )
     ingest = IngestConfig(
         diff_max_bytes=int(_get(data.get("ingest"), "diff_max_bytes", 100_000)),
