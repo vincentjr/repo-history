@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from . import db
-from .config import DEFAULT_DB_PATH, ConfigError, load_config, write_skeleton
+from .config import DEFAULT_CONFIG_PATH, DEFAULT_DB_PATH, ConfigError, load_config, write_skeleton
 from .github import GitHubClient
 from .ingest import fetch_repo
 from .providers import build_provider
@@ -28,17 +28,21 @@ def _resolve_config(args: argparse.Namespace):
 
 
 def cmd_init(args: argparse.Namespace) -> int:
-    try:
-        path = write_skeleton(args.config)
-    except ConfigError as e:
-        print(f"error: {e}", file=sys.stderr)
-        return 2
+    cfg_path = Path(args.config) if args.config else DEFAULT_CONFIG_PATH
+    if cfg_path.exists():
+        print(f"Config already exists, not overwriting: {cfg_path}")
+    else:
+        try:
+            write_skeleton(args.config)
+        except ConfigError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 2
+        print(f"Wrote config: {cfg_path}")
     db_path = Path(args.config).parent / "code-history.db" if args.config else DEFAULT_DB_PATH
     log.info("init db at %s", db_path)
     conn = db.connect(db_path)
     db.init_schema(conn)
     conn.close()
-    print(f"Wrote config: {path}")
     print(f"Initialized database: {db_path}")
     print("Edit the config to set [github].token and [github].repositories, then run `code-history fetch`.")
     return 0
