@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+here="$(dirname "$0")"
+
+if [ ! -x "$here/.venv/bin/python" ]; then
+  echo "error: .venv not found. Run ./setup.sh first." >&2
+  exit 1
+fi
+
+exec "$here/.venv/bin/python" -m code_history.cli "$@"
