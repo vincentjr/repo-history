@@ -158,6 +158,16 @@ Optional flags:
 
 Returns ledger state (last attempted/successful sync, last error) and record counts.
 
+### Inspect the database in a browser
+
+`./setup.sh` installs [Datasette](https://datasette.io/) alongside the dev tools. To browse the SQLite contents:
+
+```bash
+.venv/bin/datasette generated/code-history.db
+```
+
+Then open <http://localhost:8001>. You get a full UI over `pr_records`, `region_index`, and `sync_ledger` — useful for spot-checking distilled records, filtering by repo/author, and verifying ingest results.
+
 ## How it fits into a coding workflow
 
 `query` is meant to be called by another agent or tool before it edits a file. The returned JSON is intended to be fed to that agent so it can decide which records bear on the proposed change. This tool does *not* judge relevance itself.
@@ -177,7 +187,7 @@ Returns ledger state (last attempted/successful sync, last error) and record cou
 .venv/bin/python -m pytest
 ```
 
-(Tests are the one spot the venv is invoked directly, since pytest isn't part of the `code-history` CLI.)
+(Pytest and Datasette are the spots the venv is invoked directly, since they aren't part of the `code-history` CLI.)
 
 Layout:
 
