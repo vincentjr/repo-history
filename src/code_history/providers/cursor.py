@@ -1,11 +1,15 @@
 """Cursor CLI provider. Shells out to `cursor-agent` in a tempdir."""
 from __future__ import annotations
 
+import logging
 import subprocess
 import tempfile
 
 from ..config import CursorConfig
 from .base import Provider, ProviderError
+
+
+log = logging.getLogger(__name__)
 
 
 class CursorProvider(Provider):
@@ -20,8 +24,10 @@ class CursorProvider(Provider):
             "--print",
             "--output-format", "text",
             "--model", self.cfg.model,
+            "--trust",
             prompt,
         ]
+        log.info("invoking cursor-agent model=%s timeout=%ds", self.cfg.model, self.cfg.timeout_seconds)
         with tempfile.TemporaryDirectory() as cwd:
             try:
                 proc = subprocess.run(

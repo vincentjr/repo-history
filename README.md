@@ -17,12 +17,13 @@ Deferred (the data model accommodates these without migration): `sync`, `backfil
 
 ## Install
 
-Requires Python 3.11+. **Always use a venv** — don't install into the system Python.
+Requires Python 3.11+. One command sets up the virtual environment and installs dependencies:
 
 ```bash
-python3 -m venv .venv
-.venv/bin/pip install -e ".[dev]"
+./setup.sh
 ```
+
+This creates `.venv/` and installs the package in editable mode. Re-run any time to refresh dependencies.
 
 For the Vertex AI provider, also install the optional extra:
 
@@ -30,16 +31,16 @@ For the Vertex AI provider, also install the optional extra:
 .venv/bin/pip install -e ".[vertex]"
 ```
 
-This installs a `code-history` console script into `.venv/bin/`.
+After setup, drive everything through the `./code-history` wrapper — it calls the venv's Python for you, so you never need to touch `.venv/` directly.
 
 ## Where things live
 
-The `.venv/` directory is only for the Python environment. Everything the tool generates — config, database — lives under `./generated/` in the project root (gitignored). Override with `--config /path/to/config.toml` if you want it elsewhere.
+The `.venv/` directory is only for the Python environment and is managed by `./setup.sh`. Everything the tool generates — config, database — lives under `./generated/` in the project root (gitignored). Override with `--config /path/to/config.toml` if you want it elsewhere.
 
 ## Configure
 
 ```bash
-.venv/bin/code-history init
+./code-history init
 ```
 
 This creates `./generated/config.toml` and `./generated/code-history.db`. Edit the config:
@@ -62,10 +63,12 @@ timeout_seconds = 180
 project_id = ""
 location = "us-central1"
 model = "gemini-2.5-pro"
+timeout_seconds = 180
 
 [llm.codex]
 binary = "codex"
 model = "gpt-5"
+timeout_seconds = 180
 
 [storage]
 db_path = "./generated/code-history.db"
@@ -94,7 +97,7 @@ Pass `--config /path/to/config.toml` on any command to use a different location.
 ### Fetch and distill
 
 ```bash
-.venv/bin/code-history fetch --repo owner/repo --limit 25 -v
+./code-history fetch --repo owner/repo --limit 25 -v
 ```
 
 Walks the latest 25 merged PRs newest-first. For each: pulls diff + body + review comments + linked issues, hashes the inputs, skips if unchanged, truncates oversize diffs, calls the configured LLM provider, and upserts the resulting record. Idempotent — re-running won't re-distill unchanged PRs.
@@ -114,7 +117,7 @@ Output is a JSON summary:
 ### Query for a file's history
 
 ```bash
-.venv/bin/code-history query --repo owner/repo --file src/auth/session.py
+./code-history query --repo owner/repo --file src/auth/session.py
 ```
 
 Returns all records whose `scope.files` includes the path, newest-merged first:
@@ -149,8 +152,8 @@ Optional flags:
 ### Status
 
 ```bash
-.venv/bin/code-history status                  # all repos in config
-.venv/bin/code-history status --repo owner/repo
+./code-history status                  # all repos in config
+./code-history status --repo owner/repo
 ```
 
 Returns ledger state (last attempted/successful sync, last error) and record counts.
@@ -173,6 +176,8 @@ Returns ledger state (last attempted/successful sync, last error) and record cou
 ```bash
 .venv/bin/python -m pytest
 ```
+
+(Tests are the one spot the venv is invoked directly, since pytest isn't part of the `code-history` CLI.)
 
 Layout:
 

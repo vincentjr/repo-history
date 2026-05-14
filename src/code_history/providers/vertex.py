@@ -1,8 +1,13 @@
 """Vertex AI provider. Uses google-cloud-aiplatform if installed."""
 from __future__ import annotations
 
+import logging
+
 from ..config import VertexConfig
 from .base import Provider, ProviderError
+
+
+log = logging.getLogger(__name__)
 
 
 class VertexProvider(Provider):
@@ -25,6 +30,7 @@ class VertexProvider(Provider):
         self._gen_config = GenerationConfig(response_mime_type="application/json")
 
     def _generate(self, prompt: str) -> str:
+        log.info("invoking vertex model=%s", self.cfg.model)
         try:
             resp = self._model.generate_content(
                 prompt,

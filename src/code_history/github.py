@@ -1,12 +1,16 @@
 """GitHub REST client. Handles rate limiting and linked-issue resolution."""
 from __future__ import annotations
 
+import logging
 import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, Iterator
 
 import requests
+
+
+log = logging.getLogger(__name__)
 
 
 _LINKED_ISSUE_RE = re.compile(
@@ -53,11 +57,13 @@ class GitHubClient:
 
     def _request(self, method: str, url: str, **kw: Any) -> requests.Response:
         full = url if url.startswith("http") else f"{self.api_url}{url}"
+        log.info("GitHub %s %s", method, full)
         while True:
             resp = self._session.request(method, full, **kw)
             if resp.status_code == 403 and resp.headers.get("X-RateLimit-Remaining") == "0":
                 reset = int(resp.headers.get("X-RateLimit-Reset", "0"))
                 wait = max(1, reset - int(time.time())) + 1
+                log.warning("rate-limited; sleeping %ds until reset", wait)
                 time.sleep(wait)
                 continue
             if resp.status_code == 401:

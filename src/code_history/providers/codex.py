@@ -1,11 +1,15 @@
 """OpenAI Codex CLI provider. Shells out to `codex`."""
 from __future__ import annotations
 
+import logging
 import subprocess
 import tempfile
 
 from ..config import CodexConfig
 from .base import Provider, ProviderError
+
+
+log = logging.getLogger(__name__)
 
 
 class CodexProvider(Provider):
@@ -21,6 +25,7 @@ class CodexProvider(Provider):
             "--model", self.cfg.model,
             prompt,
         ]
+        log.info("invoking codex model=%s timeout=%ds", self.cfg.model, self.cfg.timeout_seconds)
         with tempfile.TemporaryDirectory() as cwd:
             try:
                 proc = subprocess.run(

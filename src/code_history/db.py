@@ -2,11 +2,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Iterator
+
+
+log = logging.getLogger(__name__)
 
 
 SCHEMA = """
@@ -61,6 +65,7 @@ def connect(db_path: str | Path) -> sqlite3.Connection:
     path = Path(db_path)
     if path.parent and not path.parent.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
+    log.info("opening sqlite db at %s", path)
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
@@ -68,6 +73,7 @@ def connect(db_path: str | Path) -> sqlite3.Connection:
 
 
 def init_schema(conn: sqlite3.Connection) -> None:
+    log.info("initializing schema")
     conn.executescript(SCHEMA)
     conn.commit()
 

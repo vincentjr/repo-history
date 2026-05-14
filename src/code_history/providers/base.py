@@ -1,11 +1,15 @@
 """Provider interface and shared retry helper."""
 from __future__ import annotations
 
+import logging
 import time
 from abc import ABC, abstractmethod
 from typing import Callable
 
 from ..distill import Record, build_prompt, parse_record
+
+
+log = logging.getLogger(__name__)
 
 
 class ProviderError(RuntimeError):
@@ -23,6 +27,7 @@ class Provider(ABC):
 
     def distill(self, diff: str, description: str, linked_issues: list[str]) -> Record:
         prompt = build_prompt(diff, description, linked_issues)
+        log.info("distill via %s (prompt %d chars)", self.name, len(prompt))
         return _retry(lambda: parse_record(self._generate(prompt)), self.max_attempts, self.backoff_seconds)
 
 
@@ -34,5 +39,7 @@ def _retry(fn: Callable[[], Record], attempts: int, backoff: float) -> Record:
         except Exception as e:
             last = e
             if i < attempts - 1:
-                time.sleep(backoff * (2**i))
+                sleep_for = backoff * (2**i)
+                log.warning("distill attempt %d/%d failed (%s); retrying in %.1fs", i + 1, attempts, e, sleep_for)
+                time.sleep(sleep_for)
     raise ProviderError(f"distill failed after {attempts} attempts: {last}") from last

@@ -15,7 +15,11 @@ from .providers import build_provider
 from .query import query_region
 
 
+log = logging.getLogger(__name__)
+
+
 def _resolve_config(args: argparse.Namespace):
+    log.info("loading config from %s", args.config or "<default>")
     try:
         return load_config(args.config)
     except ConfigError as e:
@@ -30,6 +34,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         print(f"error: {e}", file=sys.stderr)
         return 2
     db_path = Path(args.config).parent / "code-history.db" if args.config else DEFAULT_DB_PATH
+    log.info("init db at %s", db_path)
     conn = db.connect(db_path)
     db.init_schema(conn)
     conn.close()
@@ -41,6 +46,7 @@ def cmd_init(args: argparse.Namespace) -> int:
 
 def cmd_fetch(args: argparse.Namespace) -> int:
     cfg = _resolve_config(args)
+    log.info("fetch repo=%s limit=%d provider=%s", args.repo, args.limit, cfg.llm.provider)
     conn = db.connect(cfg.storage.db_path)
     db.init_schema(conn)
     gh = GitHubClient(cfg.github.token, cfg.github.api_url)
@@ -62,9 +68,11 @@ def cmd_fetch(args: argparse.Namespace) -> int:
 
 def cmd_query(args: argparse.Namespace) -> int:
     cfg = _resolve_config(args)
+    log.info("query repo=%s file=%s symbol=%s limit=%s", args.repo, args.file, args.symbol, args.limit)
     conn = db.connect(cfg.storage.db_path)
     db.init_schema(conn)
     rows = query_region(conn, args.repo, args.file, symbol=args.symbol, limit=args.limit)
+    log.info("query returned %d rows", len(rows))
     conn.close()
     print(json.dumps(rows, indent=2))
     return 0
@@ -72,6 +80,7 @@ def cmd_query(args: argparse.Namespace) -> int:
 
 def cmd_status(args: argparse.Namespace) -> int:
     cfg = _resolve_config(args)
+    log.info("status repo=%s", args.repo or "<all>")
     conn = db.connect(cfg.storage.db_path)
     db.init_schema(conn)
     ledger = db.ledger_status(conn, args.repo)
@@ -87,27 +96,40 @@ def cmd_status(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="code-history")
-    p.add_argument("--config", help="Path to config TOML (default: ~/.config/code-history/config.toml)")
-    p.add_argument("-v", "--verbose", action="store_true")
+    common = argparse.ArgumentParser(add_help=False)
+    # default=SUPPRESS so the subparser doesn't overwrite a value set on the parent parser
+    # (e.g. `code-history -v fetch ...` must remain verbose).
+    common.add_argument(
+        "--config",
+        default=argparse.SUPPRESS,
+        help="Path to config TOML (default: ~/.config/code-history/config.toml)",
+    )
+    common.add_argument(
+        "-v", "--verbose",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Log INFO-level progress messages to stdout",
+    )
+
+    p = argparse.ArgumentParser(prog="code-history", parents=[common])
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    pi = sub.add_parser("init", help="Create config skeleton and initialize the database")
+    pi = sub.add_parser("init", parents=[common], help="Create config skeleton and initialize the database")
     pi.set_defaults(func=cmd_init)
 
-    pf = sub.add_parser("fetch", help="Fetch the latest N PRs from a repo and distill them")
+    pf = sub.add_parser("fetch", parents=[common], help="Fetch the latest N PRs from a repo and distill them")
     pf.add_argument("--repo", required=True, help="owner/repo")
     pf.add_argument("--limit", type=int, default=25)
     pf.set_defaults(func=cmd_fetch)
 
-    pq = sub.add_parser("query", help="Return records touching a file")
+    pq = sub.add_parser("query", parents=[common], help="Return records touching a file")
     pq.add_argument("--repo", required=True)
     pq.add_argument("--file", required=True, help="repo-relative file path")
     pq.add_argument("--symbol", default=None)
     pq.add_argument("--limit", type=int, default=None)
     pq.set_defaults(func=cmd_query)
 
-    ps = sub.add_parser("status", help="Show ingest state and record counts")
+    ps = sub.add_parser("status", parents=[common], help="Show ingest state and record counts")
     ps.add_argument("--repo", default=None)
     ps.set_defaults(func=cmd_status)
 
@@ -116,10 +138,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    args.verbose = getattr(args, "verbose", False)
+    args.config = getattr(args, "config", None)
     logging.basicConfig(
         level=logging.INFO if args.verbose else logging.WARNING,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        stream=sys.stdout,
     )
+    log.info("running command: %s", args.cmd)
     return args.func(args)
 
 
