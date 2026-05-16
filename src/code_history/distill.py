@@ -22,6 +22,9 @@ class Record(BaseModel):
     links: list[str] = Field(default_factory=list)
 
 
+PROMPT_VERSION = "1"
+
+
 SCHEMA_DOC = """{
   "summary": "one or two sentences on what the PR does",
   "scope": {

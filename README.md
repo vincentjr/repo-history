@@ -2,18 +2,16 @@
 
 A local CLI that distills GitHub pull requests into structured rationale records (SQLite-backed) and answers code-region queries. The goal: at the moment a coding agent or developer modifies a file, surface the *why* behind how that file got to be the way it is — trade-offs accepted, alternatives rejected, constraints introduced — instead of inferring intent from current code alone.
 
-See `specs/code-history-context-system.md` for the full design.
-
 ## Status
 
 MVP. The following work end-to-end:
 
 - `init` — write a config skeleton and initialize the database
 - `fetch` — pull the latest N merged PRs from a repo and distill each into a record
-- `query` — return records that touch a given file (optionally filtered by symbol)
-- `status` — report sync-ledger state and record counts
+- `query` — return decisions scoped to a given file (optionally filtered by symbol)
+- `status` — report sync-ledger state and PR counts
 
-Deferred (the data model accommodates these without migration): `sync`, `backfill`, retry/backoff scheduling.
+Deferred: `sync`, historical backfill command, retry/backoff scheduling.
 
 ## Install
 
@@ -79,6 +77,8 @@ diff_max_bytes = 100000                 # diffs above this are truncated
 
 Pass `--config /path/to/config.toml` on any command to use a different location.
 
+The SQLite schema is intended for fresh local databases. If you are upgrading from an older MVP database, delete the old `generated/code-history.db` and re-run `./code-history init`; schema migrations are not currently supported.
+
 ### Secrets
 
 - `GITHUB_TOKEN` env var takes precedence over `[github].token`.
@@ -100,7 +100,7 @@ Pass `--config /path/to/config.toml` on any command to use a different location.
 ./code-history fetch --repo owner/repo --limit 25 -v
 ```
 
-Walks the latest 25 merged PRs newest-first. For each: pulls diff + body + review comments + linked issues, hashes the inputs, skips if unchanged, truncates oversize diffs, calls the configured LLM provider, and upserts the resulting record. Idempotent — re-running won't re-distill unchanged PRs.
+Walks the latest 25 merged PRs newest-first. For each: pulls diff + body + review comments + linked issues, hashes the inputs, skips if unchanged, truncates oversize diffs, calls the configured LLM provider, and upserts normalized source, decision, and code-reference rows. Idempotent — re-running won't re-distill unchanged PRs.
 
 Output is a JSON summary:
 
@@ -120,7 +120,7 @@ Output is a JSON summary:
 ./code-history query --repo owner/repo --file src/auth/session.py
 ```
 
-Returns all records whose `scope.files` includes the path, newest-merged first:
+Returns all decisions with a `code_refs.file_path` matching the path, newest-merged first:
 
 ```json
 [
@@ -156,7 +156,7 @@ Optional flags:
 ./code-history status --repo owner/repo
 ```
 
-Returns ledger state (last attempted/successful sync, last error) and record counts.
+Returns ledger state (last attempted/successful sync, last error) and PR counts.
 
 ### Inspect the database in a browser
 
@@ -166,11 +166,32 @@ Returns ledger state (last attempted/successful sync, last error) and record cou
 .venv/bin/datasette generated/code-history.db
 ```
 
-Then open <http://localhost:8001>. You get a full UI over `pr_records`, `region_index`, and `sync_ledger` — useful for spot-checking distilled records, filtering by repo/author, and verifying ingest results.
+Then open <http://localhost:8001>. You get a full UI over the normalized history tables — useful for spot-checking distilled records, filtering by repo/author, and verifying ingest results.
+
+### Storage model
+
+The database stores history in normalized tables:
+
+- `repos` and `pull_requests` identify the repository and merged PR source.
+- `source_artifacts` stores the raw evidence used for distillation: diff, PR body, review comments, and linked issues.
+- `decisions` stores the distilled rationale plus provider/model/prompt metadata.
+- `code_refs` scopes each decision to files and symbols.
+- `constraints`, `rejected_alternatives`, and `evidence_links` make the most important query fields first-class instead of burying them in JSON.
+- `sync_ledger` tracks per-repo ingest attempts, successes, errors, and consecutive failure count.
 
 ## How it fits into a coding workflow
 
-`query` is meant to be called by another agent or tool before it edits a file. The returned JSON is intended to be fed to that agent so it can decide which records bear on the proposed change. This tool does *not* judge relevance itself.
+`query` is meant to be called by another agent or tool before it edits a file. The returned JSON is intended to be fed to that agent so it can decide which decisions bear on the proposed change. This tool filters by exact file path and optional symbol; it does not do semantic ranking.
+
+An agent should use the database as a context index:
+
+1. Identify the repo-relative file it is about to edit, and optionally the symbol.
+2. Run `./code-history query --repo owner/repo --file path/to/file.py` with `--symbol` when available.
+3. Treat `code_refs` as the lookup index: it maps file paths and symbols to distilled decisions.
+4. Read the returned `record` fields for the actual context: rationale, constraints introduced, rejected alternatives, links, and summary.
+5. Use `pull_requests` for PR metadata and ordering, and inspect `source_artifacts` directly only when deeper audit of the raw diff, PR body, review comments, or linked issues is needed.
+
+Current precision limit: ingest stores one distilled decision per PR, and symbols are attached broadly to that PR's scoped files. This is useful file-history context, but it is not yet line-level or exact-function provenance.
 
 ## Failure modes (handled)
 
@@ -178,7 +199,7 @@ Then open <http://localhost:8001>. You get a full UI over `pr_records`, `region_
 - **Diff too large** — truncated to file list + partial content; `truncated = 1` on the record.
 - **Linked issue inaccessible or cross-repo** — skipped, continues with available content.
 - **PR amended after merge** — `source_updated_at` changes → `content_hash` changes → re-distilled.
-- **Token revoked / scope insufficient** — fails fast with a clear error and writes it to `sync_ledger.last_error`.
+- **Token revoked / scope insufficient** — fails fast with a clear GitHub error.
 - **Provider invalid JSON or timeout** — retries up to 3 times per PR; on persistent failure, writes an error placeholder record and continues the batch.
 
 ## Development
@@ -210,4 +231,4 @@ src/code_history/
 
 ## Before relying on it
 
-Per the spec's validation gate: hand-write the ideal record for 20–30 diverse PRs from one subsystem, iterate the prompt (per provider — Cursor, Codex, and Vertex will produce subtly different records) until generated records match the hand-written ones in substance, then confirm `query` surfaces the rationale a senior engineer would have flagged for 10 real coding tasks. Only after that should the system be scaled to additional repos.
+Before scaling this to additional repos, hand-write the ideal record for 20–30 diverse PRs from one subsystem, iterate the prompt (per provider — Cursor, Codex, and Vertex will produce subtly different records) until generated records match the hand-written ones in substance, then confirm `query` surfaces the rationale a senior engineer would have flagged for 10 real coding tasks.
