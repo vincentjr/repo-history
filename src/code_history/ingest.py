@@ -9,6 +9,7 @@ from typing import Iterable
 
 from . import db
 from .config import Config
+from .distill import PROMPT_VERSION
 from .github import GitHubClient, PullRequest
 from .providers import Provider, ProviderError
 
@@ -90,6 +91,45 @@ def _compose_description(pr: PullRequest, review_comments: list[str]) -> str:
     return "\n".join(parts)
 
 
+def _provider_model(cfg: Config) -> str | None:
+    provider_cfg = getattr(cfg.llm, cfg.llm.provider, None)
+    return getattr(provider_cfg, "model", None)
+
+
+def _source_artifacts(
+    pr: PullRequest,
+    diff: str,
+    comments: list[dict],
+    linked_issues: list[str],
+) -> list[db.SourceArtifact]:
+    artifacts = [
+        db.SourceArtifact(kind="diff", body=diff, url=pr.html_url),
+        db.SourceArtifact(
+            kind="pr_body",
+            body=f"Title: {pr.title}\n\n{pr.body or ''}",
+            author=pr.user_login,
+            url=pr.html_url,
+        ),
+    ]
+    for comment in comments:
+        body = (comment.get("body") or "").strip()
+        if not body:
+            continue
+        user = comment.get("user") or {}
+        artifacts.append(
+            db.SourceArtifact(
+                kind="review_comment",
+                body=body,
+                author=user.get("login"),
+                url=comment.get("html_url"),
+            )
+        )
+    for issue in linked_issues:
+        if issue.strip():
+            artifacts.append(db.SourceArtifact(kind="linked_issue", body=issue))
+    return artifacts
+
+
 def fetch_repo(
     cfg: Config,
     repo: str,
@@ -131,12 +171,19 @@ def fetch_repo(
                     merge_sha=pr.merge_commit_sha,
                     merged_at=pr.merged_at,
                     author=pr.user_login,
-                    record_json=record.model_dump(),
+                    record=record.model_dump(),
                     source_updated_at=pr.updated_at,
                     content_hash=content_hash,
                     truncated=truncated,
+                    title=pr.title,
+                    html_url=pr.html_url,
+                    api_url=cfg.github.api_url,
+                    provider=provider.name,
+                    model=_provider_model(cfg),
+                    prompt_version=PROMPT_VERSION,
                 ),
                 region_files=record.scope.files,
+                source_artifacts=_source_artifacts(pr, diff, comments, linked),
             )
             outcome.distilled += 1
             log.info("distilled pr=%d files=%d", pr.number, len(record.scope.files))
@@ -175,7 +222,7 @@ def _write_error_placeholder(conn, repo: str, pr: PullRequest, message: str) -> 
             merge_sha=pr.merge_commit_sha,
             merged_at=pr.merged_at,
             author=pr.user_login,
-            record_json=record,
+            record=record,
             source_updated_at=pr.updated_at,
             content_hash=f"error:{hashlib.sha256(message.encode()).hexdigest()[:16]}",
             truncated=False,

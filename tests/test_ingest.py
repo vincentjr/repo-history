@@ -1,7 +1,3 @@
-import json
-from dataclasses import dataclass
-from typing import Any
-
 from code_history import db
 from code_history.config import (
     Config, GitHubConfig, IngestConfig, LLMConfig, StorageConfig,
@@ -118,5 +114,52 @@ def test_fetch_truncates_oversize_diff():
     provider = FakeProvider(rec)
 
     fetch_repo(cfg, "acme/widgets", 10, conn, gh, provider)
-    row = conn.execute("SELECT truncated FROM pr_records WHERE pr_number=1").fetchone()
+    row = conn.execute("SELECT truncated FROM pull_requests WHERE number=1").fetchone()
     assert row["truncated"] == 1
+
+
+def test_fetch_persists_source_artifacts_and_provider_metadata():
+    cfg = _cfg()
+    conn = db.connect(":memory:")
+    db.init_schema(conn)
+    prs = [_pr(1, body="fixes #9")]
+    diffs = {1: "diff --git a/a.py b/a.py\n"}
+    comments = {
+        1: [
+            {
+                "user": {"login": "bob"},
+                "body": "Please keep this deterministic.",
+                "html_url": "https://github.com/acme/widgets/pull/1#discussion_r1",
+            }
+        ]
+    }
+    issues = {"fixes #9": ["[acme/widgets#9] Widget bug\n\nThe ordering changes between runs."]}
+    rec = Record(
+        summary="s",
+        scope=Scope(files=["a.py"], symbols=["a.fix"]),
+        rationale="r",
+        constraints_introduced=["ordering must be deterministic"],
+    )
+    provider = FakeProvider(rec)
+    gh = FakeGitHub(prs, diffs, comments=comments, issues=issues)
+
+    fetch_repo(cfg, "acme/widgets", 10, conn, gh, provider)
+
+    artifacts = conn.execute(
+        """
+        SELECT s.kind, s.author, s.url, s.body
+        FROM source_artifacts s
+        JOIN pull_requests p ON p.id = s.pr_id
+        WHERE p.number = 1
+        ORDER BY s.ordinal
+        """
+    ).fetchall()
+    assert [a["kind"] for a in artifacts] == ["diff", "pr_body", "review_comment", "linked_issue"]
+    assert artifacts[2]["author"] == "bob"
+    assert artifacts[2]["url"] == "https://github.com/acme/widgets/pull/1#discussion_r1"
+    assert "deterministic" in artifacts[2]["body"]
+
+    decision = conn.execute("SELECT provider, model, prompt_version FROM decisions").fetchone()
+    assert decision["provider"] == "fake"
+    assert decision["model"] == "claude-sonnet-4-6"
+    assert decision["prompt_version"] == "1"
